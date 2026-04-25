@@ -1,0 +1,106 @@
+# ============================================================================
+# TUKI Expertia · Compose para PRODUCCIÓN (VPS)
+# Diferencias vs docker-compose.yml (dev):
+#   - postgres NO expone puerto al host (sólo red interna)
+#   - api NO expone puerto al host (sólo red interna; nginx lo proxea)
+#   - adminer no se incluye (usar `--profile tools` si querés temporal)
+#   - etl NO depende automáticamente: se corre on-demand con `compose run --rm etl`
+#   - web sólo expone el puerto definido en WEB_PORT (default 8443, NO 80/8080)
+#   - todos los containers con restart: always
+# Uso: scripts/deploy.sh lo invoca como:
+#   docker compose -f docker-compose.prod.yml up -d --build
+# ============================================================================
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: tuki_postgres
+    restart: always
+    # Nota: SIN `ports:` → sólo accesible vía red interna (api lo ve como `postgres:5432`)
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:?POSTGRES_USER es obligatorio}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD es obligatorio}
+      POSTGRES_DB: ${POSTGRES_DB:?POSTGRES_DB es obligatorio}
+    volumes:
+      - tuki_pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 5s
+      timeout: 5s
+      retries: 30
+
+  adminer:
+    image: adminer:4
+    container_name: tuki_adminer
+    restart: unless-stopped
+    profiles: ["tools"]   # se levanta sólo si pasás --profile tools
+    ports:
+      - "${ADMINER_PORT:-18080}:8080"
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  etl:
+    build:
+      context: ./packages/etl
+    image: tuki-dashboard-etl:latest
+    container_name: tuki_etl
+    restart: "no"
+    profiles: ["etl"]     # solo se levanta cuando lo pedís: `compose run --rm etl ...`
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      POSTGRES_HOST: postgres
+      POSTGRES_PORT: 5432
+      POSTGRES_USER: ${POSTGRES_USER:?}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?}
+      POSTGRES_DB: ${POSTGRES_DB:?}
+      ETL_XLSX_PATH: /data/source.xlsx
+      ETL_SHEET_NAME: ${ETL_SHEET_NAME:-Hoja2 (2)}
+    volumes:
+      - "${XLSX_HOST_PATH:?XLSX_HOST_PATH es obligatorio (path absoluto al .xlsx en la VPS)}:/data/source.xlsx:ro"
+
+  api:
+    build:
+      context: ./apps/api
+    container_name: tuki_api
+    restart: always
+    # Nota: SIN `ports:` → solo expuesto a la red interna; nginx lo proxea como `api:3000`
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      NODE_ENV: production
+      API_PORT: 3000
+      API_CORS_ORIGIN: ${API_CORS_ORIGIN:-http://localhost:${WEB_PORT:-8443}}
+      POSTGRES_HOST: postgres
+      POSTGRES_PORT: 5432
+      POSTGRES_USER: ${POSTGRES_USER:?}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?}
+      POSTGRES_DB: ${POSTGRES_DB:?}
+      JWT_SECRET: ${JWT_SECRET:?JWT_SECRET es obligatorio (generalo con: openssl rand -hex 48)}
+      JWT_EXPIRES_IN: ${JWT_EXPIRES_IN:-12h}
+      COOKIE_SECURE: ${COOKIE_SECURE:-false}
+      COOKIE_SAMESITE: ${COOKIE_SAMESITE:-lax}
+      TUKI_USERNAME: ${TUKI_USERNAME:-tuki}
+      TUKI_PASSWORD: ${TUKI_PASSWORD:?TUKI_PASSWORD es obligatorio}
+      TUKI_DISPLAY_NAME: ${TUKI_DISPLAY_NAME:-TukiTuki}
+      TUKI_ORG: ${TUKI_ORG:-tukituki}
+      EXPERTIA_USERNAME: ${EXPERTIA_USERNAME:-expertia}
+      EXPERTIA_PASSWORD: ${EXPERTIA_PASSWORD:?EXPERTIA_PASSWORD es obligatorio}
+      EXPERTIA_DISPLAY_NAME: ${EXPERTIA_DISPLAY_NAME:-Expertia}
+      EXPERTIA_ORG: ${EXPERTIA_ORG:-expertia}
+
+  web:
+    build:
+      context: ./apps/web
+    container_name: tuki_web
+    restart: always
+    ports:
+      - "${WEB_PORT:-8443}:80"
+    depends_on:
+      - api
+
+volumes:
+  tuki_pgdata:

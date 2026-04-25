@@ -1,0 +1,63 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  html, body { height: 100%; }
+  body {
+    font-family: 'Inter', system-ui, -apple-system, sans-serif;
+    font-feature-settings: 'cv02', 'cv03', 'cv04', 'cv11';
+  }
+}
+
+@layer components {
+  .card {
+    @apply bg-white rounded-2xl border border-ink-100 shadow-[0_1px_2px_rgba(15,17,28,0.04)];
+  }
+  .btn {
+    @apply inline-flex items-center justify-center gap-2 px-3 py-2 rounded-lg text-sm font-medium transition;
+  }
+  .btn-primary {
+    @apply btn bg-accent-600 text-white hover:bg-accent-700 active:bg-accent-800;
+  }
+  .btn-ghost {
+    @apply btn text-ink-700 hover:bg-ink-100;
+  }
+  .btn-link {
+    @apply text-xs font-medium text-accent-600 hover:text-accent-700 hover:underline cursor-pointer;
+  }
+  .input {
+    @apply w-full px-3 py-2 rounded-lg border border-ink-200 bg-white text-sm
+           focus:outline-none focus:ring-2 focus:ring-accent-400 focus:border-accent-400;
+  }
+  .chip {
+    @apply inline-flex items-center gap-1 rounded-full bg-ink-100 px-2.5 py-1 text-xs font-medium text-ink-700;
+  }
+
+  // Chip-toggle: estado base + estado activo.
+  // Resolvemos override sin !important usando &:hover anidado (Sass) y
+  // declarando .chip-toggle-active DESPUÉS de .chip-toggle para ganar por cascada.
+  .chip-toggle {
+    @apply inline-flex items-center justify-center gap-1 rounded-full px-3 py-1.5 text-xs font-medium
+           border border-ink-200 bg-white text-ink-600 transition-colors cursor-pointer select-none;
+    &:hover { @apply border-accent-300 text-accent-700; }
+  }
+  .chip-toggle-active {
+    @apply bg-accent-600 text-white border-accent-600;
+    &:hover { @apply bg-accent-700 border-accent-700 text-white; }
+  }
+
+  .chip-bajo     { @apply chip bg-emerald-100 text-emerald-700; }
+  .chip-moderado { @apply chip bg-amber-100 text-amber-700; }
+  .chip-alto     { @apply chip bg-orange-100 text-orange-700; }
+  .chip-muyalto  { @apply chip bg-rose-100 text-rose-700; }
+
+  .section-label {
+    @apply text-[11px] font-semibold uppercase tracking-wider text-ink-400;
+  }
+}
+
+::-webkit-scrollbar { width: 10px; height: 10px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: #dde0ea; border-radius: 999px; border: 2px solid #f8f8fb; }
+::-webkit-scrollbar-thumb:hover { background: #b8bcce; }

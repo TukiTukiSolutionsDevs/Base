@@ -1,0 +1,22 @@
+{
+  "name": "@tuki/etl",
+  "version": "0.1.0",
+  "private": true,
+  "description": "One-shot loader: Excel → Postgres",
+  "scripts": {
+    "load": "tsx src/load.ts",
+    "load:upsert": "tsx src/load.ts --upsert",
+    "schema": "tsx src/load.ts --schema-only"
+  },
+  "dependencies": {
+    "dotenv": "^16.4.5",
+    "exceljs": "^4.4.0",
+    "pg": "^8.13.1"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.0",
+    "@types/pg": "^8.11.10",
+    "tsx": "^4.19.2",
+    "typescript": "^5.7.2"
+  }
+}

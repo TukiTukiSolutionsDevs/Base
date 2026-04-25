@@ -1,0 +1,96 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: tuki_postgres
+    restart: unless-stopped
+    ports:
+      - "5432:5432"
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-tuki}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-tuki_dev}
+      POSTGRES_DB: ${POSTGRES_DB:-tuki_expertia}
+    volumes:
+      - tuki_pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-tuki} -d ${POSTGRES_DB:-tuki_expertia}"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+  adminer:
+    image: adminer:4
+    container_name: tuki_adminer
+    restart: unless-stopped
+    ports:
+      - "8080:8080"
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  etl:
+    build:
+      context: ./packages/etl
+    container_name: tuki_etl
+    restart: "no"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      POSTGRES_HOST: postgres
+      POSTGRES_PORT: 5432
+      POSTGRES_USER: ${POSTGRES_USER:-tuki}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-tuki_dev}
+      POSTGRES_DB: ${POSTGRES_DB:-tuki_expertia}
+      ETL_XLSX_PATH: /data/source.xlsx
+      ETL_SHEET_NAME: ${ETL_SHEET_NAME:-Hoja2 (2)}
+    volumes:
+      - "/Users/soulkin/Downloads/BASE DE DATOS TUKI TUKI - EXPERTIA 2026.xlsx:/data/source.xlsx:ro"
+
+  api:
+    build:
+      context: ./apps/api
+    container_name: tuki_api
+    restart: unless-stopped
+    ports:
+      - "3000:3000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      etl:
+        condition: service_completed_successfully
+    environment:
+      NODE_ENV: production
+      API_PORT: 3000
+      API_CORS_ORIGIN: ${API_CORS_ORIGIN:-http://localhost:8081}
+      POSTGRES_HOST: postgres
+      POSTGRES_PORT: 5432
+      POSTGRES_USER: ${POSTGRES_USER:-tuki}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-tuki_dev}
+      POSTGRES_DB: ${POSTGRES_DB:-tuki_expertia}
+      # --- Auth ---------------------------------------------------------------
+      JWT_SECRET: ${JWT_SECRET:?JWT_SECRET es obligatorio. Definilo en .env (mínimo 32 chars random).}
+      JWT_EXPIRES_IN: ${JWT_EXPIRES_IN:-12h}
+      COOKIE_SECURE: ${COOKIE_SECURE:-false}
+      COOKIE_SAMESITE: ${COOKIE_SAMESITE:-lax}
+      # Seed users (creados al primer arranque si no existen)
+      TUKI_USERNAME: ${TUKI_USERNAME:-tuki}
+      TUKI_PASSWORD: ${TUKI_PASSWORD:?TUKI_PASSWORD es obligatorio. Definilo en .env.}
+      TUKI_DISPLAY_NAME: ${TUKI_DISPLAY_NAME:-TukiTuki}
+      TUKI_ORG: ${TUKI_ORG:-tukituki}
+      EXPERTIA_USERNAME: ${EXPERTIA_USERNAME:-expertia}
+      EXPERTIA_PASSWORD: ${EXPERTIA_PASSWORD:?EXPERTIA_PASSWORD es obligatorio. Definilo en .env.}
+      EXPERTIA_DISPLAY_NAME: ${EXPERTIA_DISPLAY_NAME:-Expertia}
+      EXPERTIA_ORG: ${EXPERTIA_ORG:-expertia}
+
+  web:
+    build:
+      context: ./apps/web
+    container_name: tuki_web
+    restart: unless-stopped
+    ports:
+      - "8081:80"
+    depends_on:
+      - api
+
+volumes:
+  tuki_pgdata:
