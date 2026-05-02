@@ -1,6 +1,10 @@
-import { ChangeDetectionStrategy, Component, computed, inject } from '@angular/core';
+import { ChangeDetectionStrategy, Component, computed, inject, signal } from '@angular/core';
 import { DecimalPipe } from '@angular/common';
+import { HttpErrorResponse } from '@angular/common/http';
+import { Router } from '@angular/router';
 import { DashboardService } from '../services/dashboard.service';
+import { PipelineApiService } from '../../../core/api/pipeline-api.service';
+import { ToastService } from '../../../shared/services/toast.service';
 
 @Component({
   selector: 'tk-companies-table',
@@ -9,7 +13,7 @@ import { DashboardService } from '../services/dashboard.service';
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     <div class="card overflow-hidden">
-      <div class="flex items-center justify-between px-4 py-3 border-b border-ink-100">
+      <div class="flex items-center justify-between px-4 py-3 border-b border-ink-100 gap-3 flex-wrap">
         <div class="text-sm text-ink-600">
           <span class="font-semibold text-ink-900">{{ page().total | number: '1.0-0' }}</span> empresas
           @if (page().total > 0) {
@@ -17,8 +21,17 @@ import { DashboardService } from '../services/dashboard.service';
               página {{ page().page }} de {{ page().totalPages }}
             </span>
           }
+          @if (excludeInPipeline() && hiddenCount() > 0) {
+            <span class="text-ink-400"> · {{ hiddenCount() }} ocultas (ya en pipeline)</span>
+          }
         </div>
         <div class="flex items-center gap-2">
+          <label class="inline-flex items-center gap-1.5 text-xs text-ink-600 cursor-pointer select-none">
+            <input type="checkbox" class="accent-accent-600"
+                   [checked]="excludeInPipeline()"
+                   (change)="toggleExcludeInPipeline()" />
+            Ocultar las que ya tengo en pipeline
+          </label>
           <a class="btn-ghost text-xs" [href]="exportUrl()" target="_blank" rel="noreferrer">
             <svg class="w-3.5 h-3.5" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2">
               <path d="M8 2v9m0 0l-3-3m3 3l3-3M3 13h10" stroke-linecap="round" stroke-linejoin="round"/>
@@ -47,13 +60,20 @@ import { DashboardService } from '../services/dashboard.service';
               <th class="text-right px-4 py-2 cursor-pointer select-none" (click)="sortBy('trabajadores')">Trab. {{ sortIcon('trabajadores') }}</th>
               <th class="text-left px-4 py-2">Riesgo</th>
               <th class="text-left px-4 py-2">Contacto</th>
+              <th class="text-right px-4 py-2 w-36">Acción</th>
             </tr>
           </thead>
           <tbody class="divide-y divide-ink-100">
-            @for (c of page().items; track c.id) {
-              <tr class="hover:bg-ink-50/60 transition-colors">
+            @for (c of visibleRows(); track c.id) {
+              <tr class="hover:bg-ink-50/60 transition-colors"
+                  [class.bg-emerald-50]="inPipeline(c.ruc)">
                 <td class="px-4 py-3">
-                  <div class="font-medium text-ink-900 leading-tight">{{ c.razonSocial }}</div>
+                  <div class="flex items-center gap-2">
+                    <span class="font-medium text-ink-900 leading-tight">{{ c.razonSocial }}</span>
+                    @if (inPipeline(c.ruc)) {
+                      <span class="text-[10px] font-semibold tracking-wide text-emerald-700 bg-emerald-100 rounded px-1.5 py-0.5">EN PIPELINE</span>
+                    }
+                  </div>
                   @if (c.nombreComercial) {
                     <div class="text-xs text-ink-400 leading-tight">{{ c.nombreComercial }}</div>
                   }
@@ -84,10 +104,36 @@ import { DashboardService } from '../services/dashboard.service';
                     <div class="text-[11px] text-ink-400">cel: {{ c.celulares[0] }}</div>
                   }
                 </td>
+                <td class="px-4 py-3 text-right">
+                  @if (inPipeline(c.ruc)) {
+                    <button
+                      type="button"
+                      class="btn-ghost text-xs whitespace-nowrap text-emerald-700"
+                      (click)="goToPipeline(); $event.stopPropagation()">
+                      Ver en pipeline →
+                    </button>
+                  } @else {
+                    <button
+                      type="button"
+                      class="btn-ghost text-xs whitespace-nowrap"
+                      [disabled]="adding() === c.ruc"
+                      (click)="addToPipeline(c.ruc); $event.stopPropagation()">
+                      @if (adding() === c.ruc) {
+                        <span>Agregando…</span>
+                      } @else {
+                        <span>+ Pipeline</span>
+                      }
+                    </button>
+                  }
+                </td>
               </tr>
             } @empty {
-              <tr><td colspan="8" class="px-4 py-12 text-center text-ink-400">
-                Sin resultados con los filtros actuales.
+              <tr><td colspan="9" class="px-4 py-12 text-center text-ink-400">
+                @if (excludeInPipeline() && page().items.length > 0) {
+                  Todas las empresas de esta página ya están en tu pipeline. Probá la siguiente.
+                } @else {
+                  Sin resultados con los filtros actuales.
+                }
               </td></tr>
             }
           </tbody>
@@ -121,10 +167,86 @@ import { DashboardService } from '../services/dashboard.service';
 })
 export class CompaniesTableComponent {
   private readonly svc = inject(DashboardService);
+  private readonly pipelineApi = inject(PipelineApiService);
+  private readonly toast = inject(ToastService);
+  private readonly router = inject(Router);
 
   readonly page = this.svc.page;
   readonly filter = this.svc.filter;
   readonly exportUrl = computed(() => this.svc.exportCsvUrl());
+
+  /** RUC en curso de creación, para deshabilitar el botón mientras vuela. */
+  readonly adding = signal<string | null>(null);
+
+  /** Set de RUCs que ya están en el pipeline del usuario. */
+  readonly pipelineRucs = signal<Set<string>>(new Set());
+
+  /** Toggle: ocultar empresas que ya están en pipeline. */
+  readonly excludeInPipeline = signal<boolean>(false);
+
+  /** Filas visibles (aplica el toggle excludeInPipeline). */
+  readonly visibleRows = computed(() => {
+    const rows = this.page().items;
+    if (!this.excludeInPipeline()) return rows;
+    const set = this.pipelineRucs();
+    return rows.filter(c => !set.has(c.ruc));
+  });
+
+  /** Empresas ocultas en la página actual por el toggle. */
+  readonly hiddenCount = computed(() => {
+    if (!this.excludeInPipeline()) return 0;
+    const set = this.pipelineRucs();
+    return this.page().items.filter(c => set.has(c.ruc)).length;
+  });
+
+  constructor() {
+    this.refreshPipelineRucs();
+  }
+
+  inPipeline(ruc: string): boolean {
+    return this.pipelineRucs().has(ruc);
+  }
+
+  toggleExcludeInPipeline(): void {
+    this.excludeInPipeline.update(v => !v);
+  }
+
+  addToPipeline(ruc: string): void {
+    if (this.adding()) return;
+    this.adding.set(ruc);
+    this.pipelineApi.create({ companyRuc: ruc }).subscribe({
+      next: () => {
+        this.adding.set(null);
+        this.toast.success('Agregada a En la mira');
+        this.pipelineRucs.update(set => new Set(set).add(ruc));
+        this.router.navigate(['/pipeline'], { queryParams: { status: 'IN_SIGHT' } });
+      },
+      error: (err: HttpErrorResponse) => {
+        this.adding.set(null);
+        if (err.status === 409) {
+          this.toast.info('Esa empresa ya está en tu pipeline');
+          this.pipelineRucs.update(set => new Set(set).add(ruc));
+          this.router.navigate(['/pipeline']);
+        } else {
+          this.toast.error('No pudimos agregarla al pipeline');
+        }
+      },
+    });
+  }
+
+  goToPipeline(): void {
+    this.router.navigate(['/pipeline']);
+  }
+
+  /** Carga el set de RUCs del pipeline del usuario al iniciar. */
+  private refreshPipelineRucs(): void {
+    this.pipelineApi.list({}).subscribe({
+      next: (entries) => {
+        this.pipelineRucs.set(new Set(entries.map(e => e.companyRuc)));
+      },
+      error: () => { /* silenciar: el universe sigue funcionando sin esto */ },
+    });
+  }
 
   rangeStart(): number {
     const p = this.page();

@@ -1,6 +1,6 @@
 import { Injectable } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository, SelectQueryBuilder } from 'typeorm';
+import { In, Repository, SelectQueryBuilder } from 'typeorm';
 import { CompanyEntity } from '../domain/company.entity';
 import { FilterCompaniesDto, SortableField } from '../application/dto/filter-companies.dto';
 
@@ -92,6 +92,12 @@ export class CompaniesRepository {
 
     const [items, total] = await qb.getManyAndCount();
     return { items, total, page, pageSize };
+  }
+
+  /** Bulk lookup por RUC. Útil para enriquecer pipeline entries en una sola query. */
+  async findByRucs(rucs: string[]): Promise<CompanyEntity[]> {
+    if (rucs.length === 0) return [];
+    return this.repo.find({ where: { ruc: In(rucs) } });
   }
 
   async streamForExport(f: FilterCompaniesDto): Promise<CompanyEntity[]> {

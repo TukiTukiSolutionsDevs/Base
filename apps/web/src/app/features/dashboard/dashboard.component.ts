@@ -20,6 +20,7 @@ import { HeadcountComponent } from './components/headcount.component';
   ],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
+    <div class="h-full overflow-y-auto">
     <div class="max-w-[1400px] mx-auto px-6 py-6">
       <!-- Hero KPIs -->
       <div class="flex items-end justify-between mb-5">
@@ -89,6 +90,7 @@ import { HeadcountComponent } from './components/headcount.component';
         <tk-filters-panel />
         <tk-companies-table />
       </div>
+    </div>
     </div>
   `,
 })

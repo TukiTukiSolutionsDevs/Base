@@ -9,5 +9,6 @@ import { CompaniesController } from './presentation/companies.controller';
   imports: [TypeOrmModule.forFeature([CompanyEntity])],
   controllers: [CompaniesController],
   providers: [CompaniesRepository, CompaniesService],
+  exports: [CompaniesRepository],
 })
 export class CompaniesModule {}
